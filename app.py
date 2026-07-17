@@ -67,8 +67,11 @@ def excel_download(statements):
 st.sidebar.markdown("## ⛰️ Mountain Path Academy")
 st.sidebar.caption("Dynamic 3-Statement Model")
 st.sidebar.markdown("---")
+st.sidebar.info("Change the assumptions below, then click **Apply Inputs & Refresh Model**.")
 
-with st.sidebar.expander("1 · Model setup", expanded=True):
+assumptions_form = st.sidebar.form("financial_model_assumptions")
+
+with assumptions_form.expander("1 · Model setup", expanded=True):
     company = st.text_input("Company name", "MPA Manufacturing Ltd.")
     start_year = st.number_input("First forecast year", 2024, 2035, date.today().year, 1)
     unit = st.selectbox("Display unit", ["₹ Crore", "₹ Million"], index=0)
@@ -79,33 +82,42 @@ with st.sidebar.expander("1 · Model setup", expanded=True):
 
 years = [f"FY{int(start_year)+i}" for i in range(3)]
 
-with st.sidebar.expander("2 · Revenue & operating assumptions", expanded=True):
+with assumptions_form.expander("2 · Revenue & operating assumptions", expanded=True):
     base_revenue = st.number_input("Prior-year revenue", 1.0, 100000.0, 1000.0, 25.0)
     growth = [st.slider(f"Revenue growth — {y}", -20.0, 50.0, v, 0.5) / 100 for y, v in zip(years, [10.0, 12.0, 11.0])]
     cogs_pct = [st.slider(f"COGS / Revenue — {y}", 20.0, 90.0, 60.0, 0.5) / 100 for y in years]
     opex_pct = [st.slider(f"Operating expenses / Revenue — {y}", 5.0, 50.0, 18.0, 0.5) / 100 for y in years]
     tax_rate = st.slider("Corporate tax rate", 0.0, 50.0, 25.0, 0.5) / 100
 
-with st.sidebar.expander("3 · Working capital assumptions"):
+with assumptions_form.expander("3 · Working capital assumptions"):
     dso = [st.number_input(f"Receivable days — {y}", 0, 180, 45, 1) for y in years]
     dio = [st.number_input(f"Inventory days — {y}", 0, 365, 60, 1) for y in years]
     dpo = [st.number_input(f"Payable days — {y}", 0, 180, 40, 1) for y in years]
     oca_pct = st.slider("Other current assets / Revenue", 0.0, 20.0, 4.0, 0.5) / 100
     ocl_pct = st.slider("Other current liabilities / Revenue", 0.0, 20.0, 5.0, 0.5) / 100
 
-with st.sidebar.expander("4 · Investment, financing & payout"):
+with assumptions_form.expander("4 · Investment, financing & payout"):
     capex_pct = [st.slider(f"Capex / Revenue — {y}", 0.0, 30.0, 8.0, 0.5) / 100 for y in years]
     dep_pct = st.slider("Depreciation / opening PPE", 0.0, 30.0, 10.0, 0.5) / 100
     interest_rate = st.slider("Interest rate on average debt", 0.0, 25.0, 8.0, 0.25) / 100
     debt_change = [st.number_input(f"New borrowing / (repayment) — {y}", -500.0, 500.0, v, 5.0) for y, v in zip(years, [20.0, -10.0, -20.0])]
     dividend_pct = st.slider("Dividend payout / PAT", 0.0, 100.0, 25.0, 1.0) / 100
 
-with st.sidebar.expander("5 · Opening working-capital balances"):
+with assumptions_form.expander("5 · Opening working-capital balances"):
     opening_ar = st.number_input("Opening receivables", 0.0, 10000.0, 120.0, 5.0)
     opening_inventory = st.number_input("Opening inventory", 0.0, 10000.0, 100.0, 5.0)
     opening_ap = st.number_input("Opening payables", 0.0, 10000.0, 80.0, 5.0)
     opening_oca = st.number_input("Opening other current assets", 0.0, 10000.0, 40.0, 5.0)
     opening_ocl = st.number_input("Opening other current liabilities", 0.0, 10000.0, 70.0, 5.0)
+
+submitted = assumptions_form.form_submit_button(
+    "🔄 Apply Inputs & Refresh Model",
+    type="primary",
+    use_container_width=True,
+)
+
+if submitted:
+    st.toast("Financial statements refreshed using the revised assumptions.", icon="✅")
 
 # Model engine
 revenue=[]; cogs=[]; gross=[]; opex=[]; ebitda=[]; dep=[]; ebit=[]; debt=[]; interest=[]; pbt=[]; tax=[]; pat=[]; dividends=[]
