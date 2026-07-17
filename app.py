@@ -53,14 +53,136 @@ def statement_table(rows, years, percentage_rows=None):
 def excel_download(statements):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        for name, df in statements.items():
-            df.to_excel(writer, sheet_name=name[:31])
-            ws = writer.sheets[name[:31]]
-            ws.set_column("A:A", 34)
-            ws.set_column("B:D", 16)
-            ws.freeze_panes(1, 1)
-            wb = writer.book
-            ws.set_row(0, None, wb.add_format({"bold": True, "bg_color": "#082B4C", "font_color": "white"}))
+        wb = writer.book
+        title_fmt = wb.add_format({"bold": True, "font_size": 16, "font_color": "white", "bg_color": "#082B4C", "align": "center"})
+        header_fmt = wb.add_format({"bold": True, "font_color": "white", "bg_color": "#0B5E8E", "align": "center", "border": 1})
+        input_fmt = wb.add_format({"font_color": "#0000FF", "bg_color": "#FFF7DD", "num_format": "0.0", "border": 1})
+        input_pct_fmt = wb.add_format({"font_color": "#0000FF", "bg_color": "#FFF7DD", "num_format": "0.0%", "border": 1})
+        formula_fmt = wb.add_format({"font_color": "#008000", "num_format": "#,##0.0;[Red](#,##0.0);-", "border": 1})
+        total_fmt = wb.add_format({"bold": True, "bg_color": "#EAF3F8", "num_format": "#,##0.0;[Red](#,##0.0);-", "top": 1, "bottom": 1})
+        label_fmt = wb.add_format({"border": 1})
+        section_fmt = wb.add_format({"bold": True, "font_color": "#082B4C", "bg_color": "#D9EAF2"})
+        note_fmt = wb.add_format({"italic": True, "font_color": "#555555"})
+        check_fmt = wb.add_format({"bold": True, "num_format": "0.00", "border": 1})
+
+        # Assumptions sheet: all editable model drivers are in blue.
+        ws = wb.add_worksheet("Assumptions")
+        writer.sheets["Assumptions"] = ws
+        ws.merge_range("A1:D1", f"{company} — Dynamic Model Assumptions", title_fmt)
+        ws.write("A2", "Assumption", header_fmt)
+        for col, year in enumerate(years, 1):
+            ws.write(1, col, year, header_fmt)
+        assumption_rows = [
+            ("Prior-year revenue", [base_revenue, base_revenue, base_revenue], False),
+            ("Revenue growth", growth, True), ("COGS / Revenue", cogs_pct, True),
+            ("Operating expenses / Revenue", opex_pct, True), ("Tax rate", [tax_rate] * 3, True),
+            ("Receivable days (DSO)", dso, False), ("Inventory days (DIO)", dio, False),
+            ("Payable days (DPO)", dpo, False), ("Other current assets / Revenue", [oca_pct] * 3, True),
+            ("Other current liabilities / Revenue", [ocl_pct] * 3, True), ("Capex / Revenue", capex_pct, True),
+            ("Depreciation / opening PPE", [dep_pct] * 3, True),
+            ("Interest rate on average debt", [interest_rate] * 3, True),
+            ("New borrowing / (repayment)", debt_change, False), ("Dividend payout / PAT", [dividend_pct] * 3, True),
+        ]
+        for r, (label, vals, is_pct) in enumerate(assumption_rows, 2):
+            ws.write(r, 0, label, label_fmt)
+            for c, value in enumerate(vals, 1):
+                ws.write_number(r, c, value, input_pct_fmt if is_pct else input_fmt)
+        ws.write("A19", "Opening Balance-Sheet Inputs", section_fmt)
+        opening_items = [
+            ("Opening cash", opening_cash), ("Opening debt", opening_debt), ("Opening net PPE", opening_ppe),
+            ("Opening shareholders' equity", opening_equity), ("Opening receivables", opening_ar),
+            ("Opening inventory", opening_inventory), ("Opening payables", opening_ap),
+            ("Opening other current assets", opening_oca), ("Opening other current liabilities", opening_ocl),
+        ]
+        for r, (label, value) in enumerate(opening_items, 19):
+            ws.write(r, 0, label, label_fmt)
+            ws.write_number(r, 1, value, input_fmt)
+        ws.write("A30", "Blue font = editable input | Green font = linked formula", note_fmt)
+        ws.set_column("A:A", 38); ws.set_column("B:D", 17); ws.freeze_panes(2, 1)
+
+        def create_statement(sheet_name, title, labels, formulas, cached_values, total_labels):
+            sh = wb.add_worksheet(sheet_name)
+            writer.sheets[sheet_name] = sh
+            sh.merge_range("A1:D1", title, title_fmt)
+            sh.write("A2", "Particulars", header_fmt)
+            for col, year in enumerate(years, 1):
+                sh.write(1, col, year, header_fmt)
+            for r, label in enumerate(labels, 2):
+                sh.write(r, 0, label, total_fmt if label in total_labels else label_fmt)
+                for c in range(3):
+                    fmt = total_fmt if label in total_labels else formula_fmt
+                    sh.write_formula(r, c + 1, formulas[r - 2][c], fmt, float(cached_values[r - 2][c]))
+            sh.set_column("A:A", 38); sh.set_column("B:D", 17); sh.freeze_panes(2, 1)
+            return sh
+
+        # Income Statement formulas.
+        is_labels = list(income_rows.keys())
+        is_values = [income_rows[x] for x in is_labels]
+        is_formulas = []
+        for i, col in enumerate(["B", "C", "D"]):
+            prev_rev = "Assumptions!$B$3" if i == 0 else f"{'BCD'[i-1]}3"
+            opening_debt_ref = "Assumptions!$B$21" if i == 0 else f"'Balance Sheet'!{'BCD'[i-1]}11"
+            opening_ppe_ref = "Assumptions!$B$22" if i == 0 else f"'Balance Sheet'!{'BCD'[i-1]}7"
+            is_formulas.append([
+                f"={prev_rev}*(1+Assumptions!{col}4)", f"=-{col}3*Assumptions!{col}5",
+                f"=SUM({col}3:{col}4)", f"=-{col}3*Assumptions!{col}6", f"=SUM({col}5:{col}6)",
+                f"=-{opening_ppe_ref}*Assumptions!{col}14",
+                f"=SUM({col}7:{col}8)", f"=-AVERAGE({opening_debt_ref},'Balance Sheet'!{col}11)*Assumptions!{col}15",
+                f"=SUM({col}9:{col}10)", f"=-MAX(0,{col}11*Assumptions!{col}7)", f"=SUM({col}11:{col}12)",
+            ])
+        is_formulas = [list(x) for x in zip(*is_formulas)]
+        create_statement("Income Statement", f"{company} — Forecast Income Statement", is_labels, is_formulas, is_values,
+                         {"Gross Profit", "EBITDA", "EBIT", "Profit Before Tax", "Profit After Tax"})
+
+        # Balance Sheet formulas.
+        bs_labels = list(bs_rows.keys())
+        bs_values = [bs_rows[x] for x in bs_labels]
+        bs_formulas = []
+        for i, col in enumerate(["B", "C", "D"]):
+            prev_ppe = "Assumptions!$B$22" if i == 0 else f"{'BCD'[i-1]}7"
+            prev_debt = "Assumptions!$B$21" if i == 0 else f"{'BCD'[i-1]}11"
+            prev_equity = "Assumptions!$B$23" if i == 0 else f"{'BCD'[i-1]}12"
+            bs_formulas.append([
+                f"='Cash Flow'!{col}18", f"='Income Statement'!{col}3*Assumptions!{col}8/365",
+                f"=-'Income Statement'!{col}4*Assumptions!{col}9/365", f"='Income Statement'!{col}3*Assumptions!{col}11",
+                f"={prev_ppe}+'Income Statement'!{col}3*Assumptions!{col}13+'Income Statement'!{col}8",
+                f"=SUM({col}3:{col}7)", f"=-'Income Statement'!{col}4*Assumptions!{col}10/365",
+                f"='Income Statement'!{col}3*Assumptions!{col}12", f"=MAX(0,{prev_debt}+Assumptions!{col}16)",
+                f"={prev_equity}+'Income Statement'!{col}13-MAX(0,'Income Statement'!{col}13*Assumptions!{col}17)",
+                f"=SUM({col}9:{col}12)", f"={col}8-{col}13",
+            ])
+        bs_formulas = [list(x) for x in zip(*bs_formulas)]
+        bs_sheet = create_statement("Balance Sheet", f"{company} — Forecast Balance Sheet", bs_labels, bs_formulas, bs_values,
+                                    {"Total Assets", "Total Liabilities & Equity", "Balance Check"})
+        bs_sheet.conditional_format("B14:D14", {"type": "cell", "criteria": "!=", "value": 0, "format": wb.add_format({"bg_color": "#FFC7CE", "font_color": "#9C0006"})})
+
+        # Cash Flow formulas.
+        cf_labels = list(cf_rows.keys())
+        cf_values = [cf_rows[x] for x in cf_labels]
+        cf_formulas = []
+        for i, col in enumerate(["B", "C", "D"]):
+            pcol = "BCD"[i - 1] if i > 0 else None
+            open_ar_ref = "Assumptions!$B$24" if i == 0 else f"'Balance Sheet'!{pcol}4"
+            open_inv_ref = "Assumptions!$B$25" if i == 0 else f"'Balance Sheet'!{pcol}5"
+            open_oca_ref = "Assumptions!$B$27" if i == 0 else f"'Balance Sheet'!{pcol}6"
+            open_ap_ref = "Assumptions!$B$26" if i == 0 else f"'Balance Sheet'!{pcol}9"
+            open_ocl_ref = "Assumptions!$B$28" if i == 0 else f"'Balance Sheet'!{pcol}10"
+            open_debt_ref = "Assumptions!$B$21" if i == 0 else f"'Balance Sheet'!{pcol}11"
+            open_cash_ref = "Assumptions!$B$20" if i == 0 else f"{pcol}18"
+            cf_formulas.append([
+                f"='Income Statement'!{col}13", f"=-'Income Statement'!{col}8",
+                f"=-('Balance Sheet'!{col}4-{open_ar_ref})", f"=-('Balance Sheet'!{col}5-{open_inv_ref})",
+                f"=-('Balance Sheet'!{col}6-{open_oca_ref})", f"='Balance Sheet'!{col}9-{open_ap_ref}",
+                f"='Balance Sheet'!{col}10-{open_ocl_ref}", f"=SUM({col}3:{col}9)",
+                f"=-'Income Statement'!{col}3*Assumptions!{col}13", f"={col}11",
+                f"='Balance Sheet'!{col}11-{open_debt_ref}", f"=-MAX(0,'Income Statement'!{col}13*Assumptions!{col}17)",
+                f"=SUM({col}13:{col}14)", f"=SUM({col}10,{col}12,{col}15)", f"={open_cash_ref}", f"=SUM({col}16:{col}17)",
+            ])
+        cf_formulas = [list(x) for x in zip(*cf_formulas)]
+        create_statement("Cash Flow", f"{company} — Forecast Cash Flow Statement", cf_labels, cf_formulas, cf_values,
+                         {"Net Cash from Operating Activities", "Net Cash from Investing Activities", "Net Cash from Financing Activities", "Net Change in Cash", "Closing Cash"})
+
+        ws.activate()
     return output.getvalue()
 
 

@@ -11,7 +11,7 @@ Designed for **The Mountain Path Academy** — [themountainpathacademy.com](http
 - Fully linked working-capital, PPE, debt, retained-earnings and cash schedules
 - Automatic balance-sheet integrity check
 - Profitability and funding charts
-- Excel download of all model outputs
+- Formula-linked Excel model with editable assumptions and linked statements
 - A dedicated teaching guide with suggested classroom scenarios
 - Responsive academy-branded interface
 
@@ -44,6 +44,13 @@ No API keys or secrets are required.
 - Profit after tax increases equity; dividends reduce equity and financing cash flow.
 - Borrowing affects debt, interest expense and financing cash flow.
 - Closing cash from the cash-flow statement becomes cash on the balance sheet.
+
+## Excel download conventions
+
+- **Blue-font cells** on the Assumptions sheet are editable inputs.
+- **Green-font cells** contain Excel formulas linked across the three statements.
+- Changes made to assumptions in Excel recalculate the Income Statement, Balance Sheet and Cash Flow Statement.
+- The Balance Check should remain zero in every forecast year.
 
 ## Educational disclaimer
 
